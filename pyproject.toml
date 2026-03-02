@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "md-to-pptx-report-generator"
+version = "0.1.0"
+description = "마크다운 파일을 분석·요약하여 PPT 템플릿 기반 보고서 PPTX를 자동 생성하는 CLI 도구"
+requires-python = ">=3.10"
+dependencies = [
+    "python-pptx>=0.6.23",
+    "mistune>=3.0.0,<4.0.0",
+    "boto3>=1.28.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "hypothesis>=6.0.0",
+]
+
+[project.scripts]
+md-to-pptx = "md_to_pptx.main:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.setuptools.packages.find]
+include = ["md_to_pptx*"]
