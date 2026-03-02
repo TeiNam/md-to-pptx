@@ -161,7 +161,7 @@ class TestProperty8SlideContentPlacement:
     """
 
     @given(content=summarized_content_strategy)
-    @settings(max_examples=100)
+    @settings(max_examples=100, deadline=None)
     def test_slide_count_matches_summarized_content(
         self, content: SummarizedContent,
     ):

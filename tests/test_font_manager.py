@@ -98,17 +98,39 @@ class TestFontManagerDefaults:
 
     def test_default_font_is_malgun_gothic(self) -> None:
         """폰트명 미지정 시 기본 폰트가 '나눔고딕'이어야 한다."""
-        manager = FontManager()
-        config = manager.get_font_config()
-
-        assert config.korean_font == "나눔고딕"
+        # 환경 변수 격리: DEFAULT_FONT가 설정되어 있어도 기본값 테스트
+        with patch.dict("os.environ", {}, clear=False):
+            # DEFAULT_FONT 환경 변수 제거하여 기본값 사용
+            import os
+            env_backup = os.environ.pop("DEFAULT_FONT", None)
+            try:
+                # 클래스 속성 재설정
+                from md_to_pptx.font_manager import _get_default_font
+                original_default = FontManager.DEFAULT_FONT
+                FontManager.DEFAULT_FONT = _get_default_font()
+                manager = FontManager()
+                config = manager.get_font_config()
+                assert config.korean_font == "나눔고딕"
+                FontManager.DEFAULT_FONT = original_default
+            finally:
+                if env_backup is not None:
+                    os.environ["DEFAULT_FONT"] = env_backup
 
     def test_default_mono_font_is_d2coding(self) -> None:
         """기본 고정폭 폰트가 'D2Coding'이어야 한다."""
-        manager = FontManager()
-        config = manager.get_font_config()
-
-        assert config.mono_font == "D2Coding"
+        import os
+        env_backup = os.environ.pop("DEFAULT_MONO_FONT", None)
+        try:
+            from md_to_pptx.font_manager import _get_default_mono_font
+            original_default = FontManager.DEFAULT_MONO_FONT
+            FontManager.DEFAULT_MONO_FONT = _get_default_mono_font()
+            manager = FontManager()
+            config = manager.get_font_config()
+            assert config.mono_font == "D2Coding"
+            FontManager.DEFAULT_MONO_FONT = original_default
+        finally:
+            if env_backup is not None:
+                os.environ["DEFAULT_MONO_FONT"] = env_backup
 
     def test_font_config_has_correct_default_sizes(self) -> None:
         """FontConfig의 기본 폰트 크기가 설계 문서와 일치해야 한다."""

@@ -62,6 +62,14 @@ def main(argv: list[str] | None = None) -> int:
     confirm_overwrite = args.yes
 
     if output_path and os.path.exists(output_path) and not confirm_overwrite:
+        # 비대화형 환경(파이프라인, CI 등)에서는 자동 취소
+        if not sys.stdin.isatty():
+            print(
+                f"❌ 출력 파일이 이미 존재합니다: {output_path}\n"
+                "   비대화형 환경에서는 -y 옵션을 사용하세요.",
+                file=sys.stderr,
+            )
+            return 1
         answer = input(f"파일이 이미 존재합니다: {output_path}\n덮어쓰시겠습니까? (y/N): ")
         if answer.lower() != "y":
             print("취소되었습니다.")

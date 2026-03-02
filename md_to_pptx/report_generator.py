@@ -11,7 +11,7 @@ import time
 import warnings
 
 from md_to_pptx.content_summarizer import ContentSummarizer
-from md_to_pptx.exceptions import FileNotFoundError as CustomFileNotFoundError
+from md_to_pptx.exceptions import InputFileNotFoundError
 from md_to_pptx.font_manager import FontManager
 from md_to_pptx.markdown_parser import MarkdownParser
 from md_to_pptx.models import GenerationResult
@@ -62,9 +62,9 @@ class ReportGenerator:
 
         # 1. 입력 파일 존재 여부 검증
         if not os.path.isfile(template_path):
-            raise CustomFileNotFoundError(template_path)
+            raise InputFileNotFoundError(template_path)
         if not os.path.isfile(markdown_path):
-            raise CustomFileNotFoundError(markdown_path)
+            raise InputFileNotFoundError(markdown_path)
 
         # 2. 출력 경로 결정
         if output_path is None:
@@ -108,6 +108,10 @@ class ReportGenerator:
 
             # 8. PPTX 저장
             logger.info("PPTX 저장 중: %s", output_path)
+            # 출력 디렉토리가 없으면 자동 생성
+            output_dir = os.path.dirname(output_path)
+            if output_dir:
+                os.makedirs(output_dir, exist_ok=True)
             prs.save(output_path)
 
             # 경고 수집

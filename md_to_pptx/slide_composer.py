@@ -373,14 +373,33 @@ class SlideComposer:
             total_height_est += line_height_est
 
         # 텍스트 프레임 높이와 비교하여 오버플로우 추정
-        if hasattr(tf, '_txBody'):
-            parent = tf._txBody.getparent()
-            if parent is not None:
-                ext = parent.find(qn('a:ext'))
-                if ext is not None:
-                    frame_height = int(ext.get('cy', '0'))
-                    if total_height_est > frame_height:
-                        return True
+        # 1) shape의 height 속성 사용 (텍스트 박스)
+        frame_height = 0
+        try:
+            shape = tf._txBody.getparent()
+            if shape is not None:
+                # spPr/a:xfrm/a:ext 에서 cy 추출
+                xfrm = shape.find(qn('p:spPr'))
+                if xfrm is None:
+                    xfrm = shape.find(qn('a:xfrm'))
+                if xfrm is not None:
+                    ext = xfrm.find(qn('a:ext'))
+                    if ext is not None:
+                        frame_height = int(ext.get('cy', '0'))
+                # spPr 내부의 xfrm 탐색
+                if frame_height == 0:
+                    sp_pr = shape.find(qn('p:spPr'))
+                    if sp_pr is not None:
+                        a_xfrm = sp_pr.find(qn('a:xfrm'))
+                        if a_xfrm is not None:
+                            ext = a_xfrm.find(qn('a:ext'))
+                            if ext is not None:
+                                frame_height = int(ext.get('cy', '0'))
+        except (AttributeError, TypeError):
+            pass
+
+        if frame_height > 0 and total_height_est > frame_height:
+            return True
         return False
 
     def _shrink_font_to_fit(

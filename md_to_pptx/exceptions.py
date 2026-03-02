@@ -23,7 +23,7 @@ class InvalidFileFormatError(ReportGeneratorError):
         super().__init__(f"지원하지 않는 파일 형식입니다: {path}")
 
 
-class FileNotFoundError(ReportGeneratorError):
+class InputFileNotFoundError(ReportGeneratorError):
     """파일을 찾을 수 없음 (요구사항 8.4)"""
 
     def __init__(self, path: str):

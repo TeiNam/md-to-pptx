@@ -12,23 +12,15 @@ Amazon Bedrock API를 호출하여 파싱된 마크다운 문서를
 import json
 import logging
 import os
-from pathlib import Path
 from typing import Any
 
 import boto3
 from botocore.exceptions import ClientError, ReadTimeoutError
 from botocore.config import Config
 
-try:
-    from dotenv import load_dotenv
-    # 프로젝트 루트의 .env 파일 로드
-    _env_path = Path(__file__).resolve().parent.parent / ".env"
-    if _env_path.exists():
-        load_dotenv(_env_path)
-        logging.getLogger(__name__).info(".env 파일에서 환경 변수 로드 완료: %s", _env_path)
-except ImportError:
-    # python-dotenv 미설치 시 boto3 기본 체인 사용
-    pass
+from md_to_pptx.env_loader import load_env
+
+load_env()
 
 from md_to_pptx.exceptions import BedrockAPIError, BedrockTimeoutError
 from md_to_pptx.models import (
@@ -161,7 +153,12 @@ class ContentSummarizer:
     ) -> None:
         """마크다운 노드를 텍스트로 변환한다."""
         if node.type == NodeType.PARAGRAPH:
-            lines.append(node.content)
+            # 인라인 서식 children이 있으면 마크다운 텍스트로 변환
+            if node.children:
+                text = self._inline_children_to_markdown(node.children)
+                lines.append(text)
+            else:
+                lines.append(node.content)
             lines.append("")
         elif node.type == NodeType.CODE_BLOCK:
             lang = node.language or ""
@@ -188,6 +185,27 @@ class ContentSummarizer:
         elif node.type == NodeType.TABLE:
             lines.append(node.content)
             lines.append("")
+
+    @staticmethod
+    def _inline_children_to_markdown(children: list[MarkdownNode]) -> str:
+        """인라인 자식 노드 목록을 마크다운 텍스트로 변환한다."""
+        parts: list[str] = []
+        for child in children:
+            parts.append(ContentSummarizer._inline_to_markdown(child))
+        return "".join(parts)
+
+    @staticmethod
+    def _inline_to_markdown(node: MarkdownNode) -> str:
+        """인라인 노드를 마크다운 텍스트로 변환한다."""
+        if node.type == NodeType.TEXT:
+            return node.content
+        elif node.type == NodeType.BOLD:
+            return f"**{node.content}**"
+        elif node.type == NodeType.ITALIC:
+            return f"*{node.content}*"
+        elif node.type == NodeType.INLINE_CODE:
+            return f"`{node.content}`"
+        return node.content
 
     def _build_prompt(
         self, title: str, markdown_text: str, max_slides: int
@@ -258,6 +276,10 @@ class ContentSummarizer:
             except ReadTimeoutError:
                 logger.error("Bedrock API 타임아웃 발생 (모델: %s)", model_id)
                 last_error = BedrockTimeoutError()
+                # fallback 모델로 재시도
+                if model_id != models_to_try[-1]:
+                    logger.info("fallback 모델로 재시도: %s", models_to_try[-1])
+                    continue
             except ClientError as e:
                 error_code = e.response.get("Error", {}).get("Code", "UNKNOWN")
                 logger.warning(

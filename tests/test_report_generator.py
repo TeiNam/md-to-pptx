@@ -15,7 +15,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from pptx import Presentation
 
-from md_to_pptx.exceptions import FileNotFoundError as CustomFileNotFoundError
+from md_to_pptx.exceptions import InputFileNotFoundError
 from md_to_pptx.main import create_parser, main
 from md_to_pptx.models import GenerationResult, SlideContent, SummarizedContent
 from md_to_pptx.report_generator import ReportGenerator
@@ -262,7 +262,7 @@ class TestReportGeneratorUnit:
         """존재하지 않는 입력 파일에 대해 FileNotFoundError가 발생한다."""
         mock_client = _mock_bedrock_response()
         generator = ReportGenerator(bedrock_client=mock_client)
-        with pytest.raises(CustomFileNotFoundError):
+        with pytest.raises(InputFileNotFoundError):
             generator.generate(
                 template_path=str(tmp_path / "nonexistent.pptx"),
                 markdown_path=str(tmp_path / "nonexistent.md"),
