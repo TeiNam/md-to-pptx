@@ -35,7 +35,7 @@ from md_to_pptx.models import (
 logger = logging.getLogger(__name__)
 
 # 슬라이드 수 제한 상수
-MIN_SLIDES = 1
+MIN_SLIDES = 3
 MAX_SLIDES_LIMIT = 5
 
 # Bedrock 모델 ID (우선순위: .env BEDROCK_MODEL_ID → 기본값 → fallback)
@@ -221,11 +221,16 @@ class ContentSummarizer:
             f"4. 핵심 데이터(수치, 날짜, 고유명사)를 반드시 보존하세요.\n"
             f"5. 제목 계층 구조를 유지하세요.\n"
             f"6. 하나의 주제가 여러 슬라이드에 분산되지 않도록 하세요.\n"
-            f"7. 콘텐츠 분량이 적으면 슬라이드 수를 줄이세요.\n\n"
+            f"7. 콘텐츠 분량이 적으면 슬라이드 수를 줄이세요.\n"
+            f"8. **표(table) 데이터는 반드시 마크다운 표 형식으로 보존하세요.** "
+            f"원본에 표가 있으면 body 항목에 마크다운 표 형식(| 헤더 | ... |)으로 "
+            f"포함하세요. 표를 불릿 리스트로 변환하지 마세요.\n"
+            f"9. 하나의 슬라이드에 표는 최대 1개만 포함하세요. "
+            f"표 외의 요약 텍스트도 함께 포함할 수 있습니다.\n\n"
             f"## 출력 형식\n"
             f"반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트는 포함하지 마세요.\n"
             f'{{"slides": [\n'
-            f'  {{"title": "슬라이드 제목", "body": ["항목1", "항목2"], '
+            f'  {{"title": "슬라이드 제목", "body": ["항목1", "| 헤더1 | 헤더2 |", "| --- | --- |", "| 값1 | 값2 |"], '
             f'"is_cover": true/false, "notes": "발표자 노트"}}\n'
             f"]}}\n\n"
             f"## 문서 제목\n{title}\n\n"

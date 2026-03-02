@@ -138,6 +138,6 @@ class TestFontManagerDefaults:
         config = manager.get_font_config()
 
         assert config.title_size_pt == 28
-        assert config.body_size_pt == 16
+        assert config.body_size_pt == 14
         assert config.code_size_pt == 12
         assert config.min_size_pt == 10

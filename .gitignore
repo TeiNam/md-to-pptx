@@ -17,5 +17,9 @@ build/
 .vscode/
 .idea/
 
+# 생성된 PPTX 출력물
+*_report.pptx
+template.pptx
+
 # OS
 .DS_Store

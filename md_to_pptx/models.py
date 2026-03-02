@@ -132,7 +132,7 @@ class FontConfig:
     korean_font: str                  # 한국어 폰트명
     mono_font: str                    # 고정폭 폰트명
     title_size_pt: int = 28           # 제목 폰트 크기
-    body_size_pt: int = 16            # 본문 폰트 크기
+    body_size_pt: int = 14            # 본문 폰트 크기
     code_size_pt: int = 12            # 코드 폰트 크기
     min_size_pt: int = 10             # 최소 폰트 크기
 

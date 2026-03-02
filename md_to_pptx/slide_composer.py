@@ -297,10 +297,16 @@ class SlideComposer:
         # 본문 텍스트 배치
         current_top = top
         if regular_lines:
-            body_height = height
+            # 표/코드가 있으면 텍스트와 표/코드 간 공간을 비율로 분배
             if table_data or code_blocks:
-                # 표/코드가 있으면 공간 분배
-                body_height = height // 2
+                # 텍스트 라인 수 기반 비율 계산
+                text_lines = len(regular_lines)
+                table_rows = sum(len(t) for t in table_data)
+                total_items = text_lines + table_rows + len(code_blocks) * 3
+                text_ratio = max(0.2, min(0.6, text_lines / total_items)) if total_items > 0 else 0.5
+                body_height = int(height * text_ratio)
+            else:
+                body_height = height
 
             txBox = slide.shapes.add_textbox(
                 left, current_top, width, body_height
@@ -341,7 +347,10 @@ class SlideComposer:
             remaining = (
                 slide_height - current_top - _PAGE_NUM_HEIGHT - _MARGIN
             )
-            table_height = min(Inches(2.0), remaining)
+            # 행 수에 비례한 표 높이 계산 (행당 약 0.35인치, 최소 1인치)
+            row_count = len(table)
+            estimated_height = max(Inches(1.0), Inches(0.35) * row_count)
+            table_height = min(estimated_height, remaining)
             self._add_table(
                 slide, table, left, current_top, width, table_height
             )
