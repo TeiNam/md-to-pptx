@@ -112,6 +112,7 @@ class SlideContent:
     body: list[str]                   # 본문 항목 목록
     is_cover: bool = False            # 표지 슬라이드 여부
     notes: str = ""                   # 발표자 노트
+    layout_name: str = ""             # AI가 지정한 레이아웃 이름 (빈 문자열이면 자동 선택)
 
 
 @dataclass(frozen=True)

@@ -106,13 +106,38 @@ class SlideComposer:
         logger.info("슬라이드 구성 완료: 총 %d개", len(prs.slides))
         return prs
 
+    # 기본 레이아웃 이름 목록 (PowerPoint 기본 제공)
+    _DEFAULT_LAYOUT_NAMES = {
+        "제목 슬라이드", "제목 및 내용", "구역 머리글", "콘텐츠 2개",
+        "비교", "제목만", "빈 화면", "캡션 있는 콘텐츠", "캡션 있는 그림",
+        "제목 및 세로 텍스트", "세로 제목 및 텍스트",
+        # 영문 기본 레이아웃
+        "Title Slide", "Title and Content", "Section Header",
+        "Two Content", "Comparison", "Title Only", "Blank",
+        "Content with Caption", "Picture with Caption",
+        "Title and Vertical Text", "Vertical Title and Text",
+    }
+
     def _select_layout(
         self, template_info: TemplateInfo, slide_content: SlideContent
     ) -> LayoutInfo:
         """슬라이드 콘텐츠에 적합한 레이아웃을 선택한다."""
         if not template_info.layouts:
-            # 레이아웃이 없으면 인덱스 0 사용
             return LayoutInfo(name="Default", index=0)
+
+        # AI가 지정한 layout_name이 있으면 우선 사용
+        if slide_content.layout_name:
+            for layout in template_info.layouts:
+                if layout.name == slide_content.layout_name:
+                    logger.debug(
+                        "AI 지정 레이아웃 사용: '%s' (인덱스 %d)",
+                        layout.name, layout.index,
+                    )
+                    return layout
+            logger.warning(
+                "AI 지정 레이아웃 '%s'을 찾을 수 없음, 자동 선택",
+                slide_content.layout_name,
+            )
 
         if slide_content.is_cover:
             # 표지: 제목 슬라이드 레이아웃 (보통 인덱스 0)
@@ -129,7 +154,23 @@ class SlideComposer:
                     return layout
             return template_info.layouts[0]
 
-        # 본문: 제목+본문 레이아웃 선택
+        # 본문: 커스텀 레이아웃 우선 선택 (사용자가 만든 레이아웃)
+        # 커스텀 레이아웃 중 TITLE이 있는 것을 우선 사용
+        for layout in template_info.layouts:
+            if layout.name in self._DEFAULT_LAYOUT_NAMES:
+                continue
+            title_ph = [
+                p for p in layout.placeholders
+                if p.type == PlaceholderType.TITLE
+            ]
+            if title_ph:
+                logger.debug(
+                    "커스텀 레이아웃 선택: '%s' (인덱스 %d)",
+                    layout.name, layout.index,
+                )
+                return layout
+
+        # 커스텀 레이아웃이 없으면 기본 제목+본문 레이아웃
         for layout in template_info.layouts:
             title_ph = [
                 p for p in layout.placeholders
@@ -142,8 +183,10 @@ class SlideComposer:
             if title_ph and body_ph:
                 return layout
 
-        # 적합한 레이아웃이 없으면 첫 번째 사용
         return template_info.layouts[0]
+
+    # BODY 플레이스홀더가 이 높이 이하이면 본문 배치에 부적합 (텍스트박스 사용)
+    _MIN_BODY_PH_HEIGHT = Inches(1.0)
 
     def _populate_slide(
         self,
@@ -154,7 +197,6 @@ class SlideComposer:
         slide_index: int,
     ) -> None:
         """슬라이드에 콘텐츠를 배치한다."""
-        # 플레이스홀더에 제목 배치
         title_placed = False
         body_placed = False
 
@@ -170,10 +212,18 @@ class SlideComposer:
                     self._set_body_text(ph, slide_content.body, is_subtitle=True)
                     body_placed = True
             elif ph_info and ph_info.type == PlaceholderType.BODY:
-                self._set_body_text(ph, slide_content.body)
-                body_placed = True
+                # BODY 플레이스홀더 높이가 충분하고, 표/코드가 없는 경우에만 사용
+                ph_height = ph_info.height or 0
+                has_table_or_code = any(
+                    self._is_table_line(line) or self._is_code_block_marker(line)
+                    for line in slide_content.body
+                )
+                if ph_height >= self._MIN_BODY_PH_HEIGHT and not has_table_or_code:
+                    self._set_body_text(ph, slide_content.body)
+                    body_placed = True
+                # 표/코드가 있거나 높이 부족 → 텍스트박스로 배치
 
-        # 플레이스홀더가 없으면 텍스트 박스로 직접 배치
+        # 플레이스홀더가 없거나 부적합하면 텍스트 박스로 직접 배치
         sw = template_info.slide_width
         sh = template_info.slide_height
 
@@ -181,8 +231,11 @@ class SlideComposer:
             self._add_title_textbox(slide, slide_content.title, sw, sh)
 
         if not body_placed and slide_content.body:
+            # 제목 플레이스홀더 위치 기반으로 본문 시작 위치 계산
+            title_bottom = self._get_title_bottom(layout)
             self._add_body_textbox(
-                slide, slide_content, sw, sh, slide_index
+                slide, slide_content, sw, sh, slide_index,
+                title_bottom=title_bottom,
             )
 
         # 발표자 노트 추가
@@ -197,6 +250,14 @@ class SlideComposer:
         for ph_info in layout.placeholders:
             if ph_info.idx == ph_idx:
                 return ph_info
+        return None
+
+    def _get_title_bottom(self, layout: LayoutInfo) -> int | None:
+        """레이아웃의 제목 플레이스홀더 하단 위치(EMU)를 반환한다."""
+        for ph_info in layout.placeholders:
+            if ph_info.type == PlaceholderType.TITLE:
+                if ph_info.top is not None and ph_info.height is not None:
+                    return ph_info.top + ph_info.height
         return None
 
     def _set_title_text(self, placeholder, title: str) -> None:
@@ -259,11 +320,15 @@ class SlideComposer:
         slide_width: int,
         slide_height: int,
         slide_index: int,
+        title_bottom: int | None = None,
     ) -> None:
         """본문 텍스트 박스를 슬라이드에 추가한다."""
         left = _MARGIN
-        # 제목 아래 + 간격
-        top = _MARGIN + Inches(1.0) + _MIN_TEXTBOX_GAP_EMU
+        # 제목 플레이스홀더 하단 기준으로 본문 시작 위치 계산
+        if title_bottom is not None:
+            top = title_bottom + _MIN_TEXTBOX_GAP_EMU
+        else:
+            top = _MARGIN + Inches(1.0) + _MIN_TEXTBOX_GAP_EMU
         width = slide_width - 2 * _MARGIN
         # 페이지 번호 영역 확보
         height = (

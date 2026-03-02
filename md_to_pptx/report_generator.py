@@ -98,7 +98,9 @@ class ReportGenerator:
             summarizer = ContentSummarizer(
                 bedrock_client=self._bedrock_client
             )
-            summarized = summarizer.summarize(document)
+            summarized = summarizer.summarize(
+                document, template_info=template_info
+            )
 
             # 7. 슬라이드 구성
             logger.info("슬라이드 구성 중...")

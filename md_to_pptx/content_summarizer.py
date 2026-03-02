@@ -24,19 +24,22 @@ load_env()
 
 from md_to_pptx.exceptions import BedrockAPIError, BedrockTimeoutError
 from md_to_pptx.models import (
+    LayoutInfo,
     ParsedDocument,
+    PlaceholderType,
     Section,
     MarkdownNode,
     NodeType,
     SlideContent,
     SummarizedContent,
+    TemplateInfo,
 )
 
 logger = logging.getLogger(__name__)
 
 # 슬라이드 수 제한 상수
 MIN_SLIDES = 3
-MAX_SLIDES_LIMIT = 5
+MAX_SLIDES_LIMIT = 12
 
 # Bedrock 모델 ID (우선순위: .env BEDROCK_MODEL_ID → 기본값 → fallback)
 PRIMARY_MODEL_ID = "global.anthropic.claude-opus-4-6-v1"
@@ -59,7 +62,7 @@ class ContentSummarizer:
     def __init__(
         self,
         bedrock_client: Any | None = None,
-        timeout: int = 30,
+        timeout: int = 120,
     ) -> None:
         """
         ContentSummarizer 초기화.
@@ -84,26 +87,28 @@ class ContentSummarizer:
     def summarize(
         self,
         document: ParsedDocument,
-        max_slides: int = 5,
+        max_slides: int = 12,
+        template_info: TemplateInfo | None = None,
     ) -> SummarizedContent:
         """
-        파싱된 문서를 슬라이드 단위로 요약한다.
+        파싱된 문서를 슬라이드 단위로 변환한다.
+        원문을 최대한 보존하면서 슬라이드에 적합하게 분배한다.
 
         Args:
             document: 파싱된 마크다운 문서
-            max_slides: 최대 슬라이드 수 (기본 5, 범위 1~5)
+            max_slides: 최대 슬라이드 수 (기본 50)
+            template_info: 템플릿 분석 결과 (레이아웃 정보를 AI에 전달)
 
         Returns:
-            SummarizedContent: 슬라이드별 요약 콘텐츠
+            SummarizedContent: 슬라이드별 콘텐츠
 
         Raises:
             BedrockAPIError: API 호출 실패
             BedrockTimeoutError: 타임아웃 초과
         """
-        # 슬라이드 수 범위 제한
         max_slides = max(MIN_SLIDES, min(max_slides, MAX_SLIDES_LIMIT))
         logger.info(
-            "문서 요약 시작: '%s' (최대 %d 슬라이드)",
+            "문서 변환 시작: '%s' (최대 %d 슬라이드)",
             document.title,
             max_slides,
         )
@@ -112,8 +117,13 @@ class ContentSummarizer:
         markdown_text = self._document_to_markdown(document)
         logger.debug("마크다운 텍스트 변환 완료 (%d자)", len(markdown_text))
 
+        # 레이아웃 정보 텍스트 생성
+        layout_desc = self._describe_layouts(template_info)
+
         # Bedrock API 호출
-        prompt = self._build_prompt(document.title, markdown_text, max_slides)
+        prompt = self._build_prompt(
+            document.title, markdown_text, max_slides, layout_desc
+        )
         response_text = self._invoke_bedrock(prompt)
 
         # 응답 파싱
@@ -207,31 +217,64 @@ class ContentSummarizer:
             return f"`{node.content}`"
         return node.content
 
+    def _describe_layouts(
+        self, template_info: TemplateInfo | None
+    ) -> str:
+        """템플릿 레이아웃 정보를 AI 프롬프트용 텍스트로 변환한다."""
+        if template_info is None or not template_info.layouts:
+            return ""
+
+        lines: list[str] = []
+        for layout in template_info.layouts:
+            # 플레이스홀더 유형 요약
+            ph_types = [p.type.value for p in layout.placeholders
+                        if p.type not in (PlaceholderType.OTHER,)]
+            if not ph_types:
+                continue
+            lines.append(
+                f"- \"{layout.name}\": {', '.join(ph_types)}"
+            )
+        return "\n".join(lines)
+
     def _build_prompt(
-        self, title: str, markdown_text: str, max_slides: int
+        self, title: str, markdown_text: str, max_slides: int,
+        layout_desc: str = "",
     ) -> str:
         """Bedrock API에 전달할 프롬프트를 생성한다."""
+        layout_section = ""
+        if layout_desc:
+            layout_section = (
+                f"\n## 사용 가능한 레이아웃\n"
+                f"아래는 템플릿에 정의된 슬라이드 레이아웃 목록입니다.\n"
+                f"각 슬라이드에 가장 적합한 레이아웃을 선택하여 "
+                f"layout_name 필드에 정확한 이름을 지정하세요.\n"
+                f"{layout_desc}\n"
+            )
+
         return (
-            f"다음 마크다운 문서를 보고서용 프레젠테이션 슬라이드로 요약해주세요.\n\n"
+            f"다음 마크다운 문서를 프레젠테이션 슬라이드로 변환해주세요.\n\n"
+            f"## 핵심 원칙\n"
+            f"문서 내용을 최대 {max_slides}장의 슬라이드에 맞게 요약하세요.\n"
+            f"핵심 데이터와 표는 반드시 보존하되, 슬라이드에 적합한 분량으로 정리하세요.\n\n"
             f"## 규칙\n"
-            f"1. 첫 번째 슬라이드는 반드시 표지(cover)로 구성하세요. "
-            f"표지에는 문서 제목만 포함합니다.\n"
-            f"2. 나머지 슬라이드에 본문 콘텐츠를 논리적 섹션 단위로 분배하세요.\n"
-            f"3. 총 슬라이드 수는 최소 1장, 최대 {max_slides}장입니다.\n"
-            f"4. 핵심 데이터(수치, 날짜, 고유명사)를 반드시 보존하세요.\n"
+            f"1. 첫 번째 슬라이드는 표지(cover)입니다. 문서 제목만 포함합니다.\n"
+            f"2. 나머지 슬라이드에 본문을 논리적 섹션 단위로 분배하세요.\n"
+            f"3. 총 슬라이드 수는 최소 3장, 최대 {max_slides}장입니다.\n"
+            f"4. 수치, 날짜, 고유명사, 기술 용어를 정확히 보존하세요.\n"
             f"5. 제목 계층 구조를 유지하세요.\n"
             f"6. 하나의 주제가 여러 슬라이드에 분산되지 않도록 하세요.\n"
-            f"7. 콘텐츠 분량이 적으면 슬라이드 수를 줄이세요.\n"
-            f"8. **표(table) 데이터는 반드시 마크다운 표 형식으로 보존하세요.** "
-            f"원본에 표가 있으면 body 항목에 마크다운 표 형식(| 헤더 | ... |)으로 "
-            f"포함하세요. 표를 불릿 리스트로 변환하지 마세요.\n"
-            f"9. 하나의 슬라이드에 표는 최대 1개만 포함하세요. "
-            f"표 외의 요약 텍스트도 함께 포함할 수 있습니다.\n\n"
+            f"7. **표(table)는 반드시 마크다운 표 형식(| 헤더 | ... |)으로 보존하세요.** "
+            f"표를 불릿 리스트로 변환하지 마세요.\n"
+            f"8. 하나의 슬라이드에 표는 최대 1개만 포함하세요.\n"
+            f"9. 각 슬라이드에 적합한 레이아웃을 layout_name으로 지정하세요.\n"
+            f"{layout_section}\n"
             f"## 출력 형식\n"
             f"반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트는 포함하지 마세요.\n"
             f'{{"slides": [\n'
-            f'  {{"title": "슬라이드 제목", "body": ["항목1", "| 헤더1 | 헤더2 |", "| --- | --- |", "| 값1 | 값2 |"], '
-            f'"is_cover": true/false, "notes": "발표자 노트"}}\n'
+            f'  {{"title": "슬라이드 제목", '
+            f'"body": ["항목1", "| 헤더1 | 헤더2 |", "| --- | --- |", "| 값1 | 값2 |"], '
+            f'"is_cover": true/false, "notes": "발표자 노트", '
+            f'"layout_name": "레이아웃 이름"}}\n'
             f"]}}\n\n"
             f"## 문서 제목\n{title}\n\n"
             f"## 문서 내용\n{markdown_text}"
@@ -244,7 +287,7 @@ class ContentSummarizer:
         # Anthropic Claude 메시지 형식
         request_body = json.dumps({
             "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 4096,
+            "max_tokens": 16384,
             "messages": [
                 {
                     "role": "user",
@@ -271,6 +314,11 @@ class ContentSummarizer:
 
                 # 응답 파싱
                 response_body = json.loads(response["body"].read())
+                stop_reason = response_body.get("stop_reason", "")
+                if stop_reason == "max_tokens":
+                    logger.warning(
+                        "응답이 max_tokens에 의해 잘림 (모델: %s)", model_id
+                    )
                 content = response_body.get("content", [])
                 if content and isinstance(content, list):
                     text = content[0].get("text", "")
@@ -332,8 +380,12 @@ class ContentSummarizer:
         try:
             data = json.loads(text)
         except json.JSONDecodeError:
-            logger.warning("JSON 파싱 실패, 기본 슬라이드 생성")
-            return self._create_fallback_slides(original_title)
+            # 잘린 JSON 복구 시도: 마지막 완전한 슬라이드 객체까지 잘라서 파싱
+            logger.warning("JSON 파싱 실패, 잘린 JSON 복구 시도")
+            data = self._try_recover_truncated_json(text)
+            if data is None:
+                logger.warning("JSON 복구 실패, 기본 슬라이드 생성")
+                return self._create_fallback_slides(original_title)
 
         raw_slides = data.get("slides", [])
         if not raw_slides:
@@ -342,8 +394,6 @@ class ContentSummarizer:
 
         slides: list[SlideContent] = []
         for i, raw in enumerate(raw_slides):
-            if i >= max_slides:
-                break
             title = raw.get("title", "")
             body = raw.get("body", [])
             # body가 문자열인 경우 리스트로 변환
@@ -351,12 +401,14 @@ class ContentSummarizer:
                 body = [body]
             is_cover = raw.get("is_cover", False)
             notes = raw.get("notes", "")
+            layout_name = raw.get("layout_name", "")
             slides.append(
                 SlideContent(
                     title=title,
                     body=body,
                     is_cover=bool(is_cover),
                     notes=notes,
+                    layout_name=layout_name,
                 )
             )
 
@@ -375,6 +427,36 @@ class ContentSummarizer:
 
         logger.debug("응답 파싱 완료: %d개 슬라이드", len(slides))
         return slides
+
+    @staticmethod
+    def _try_recover_truncated_json(text: str) -> dict | None:
+        """잘린 JSON에서 마지막 완전한 슬라이드 객체까지 복구를 시도한다."""
+        # 마지막으로 완전한 슬라이드 객체가 끝나는 위치를 찾음
+        # 패턴: }, 또는 }] 앞의 }를 찾아서 거기까지 잘라냄
+        last_complete = text.rfind('"is_cover"')
+        if last_complete == -1:
+            return None
+
+        # is_cover 이후 } 찾기
+        brace_pos = text.find("}", last_complete)
+        if brace_pos == -1:
+            return None
+
+        truncated = text[:brace_pos + 1] + "]}"
+        try:
+            return json.loads(truncated)
+        except json.JSONDecodeError:
+            pass
+
+        # 두 번째 시도: 마지막 완전한 }를 찾아서 배열 닫기
+        for i in range(len(text) - 1, -1, -1):
+            if text[i] == "}":
+                candidate = text[:i + 1] + "]}"
+                try:
+                    return json.loads(candidate)
+                except json.JSONDecodeError:
+                    continue
+        return None
 
     def _create_fallback_slides(
         self, original_title: str
